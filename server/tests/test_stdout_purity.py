@@ -21,6 +21,8 @@ def test_stdout_purity():
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    repo_root = str(Path(__file__).resolve().parent.parent.parent)
+    env["PYTHONPATH"] = repo_root + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
 
     proc = subprocess.Popen(
         cmd,
