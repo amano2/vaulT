@@ -17,6 +17,8 @@
 [Features](#-key-features) •
 [Architecture](#-architecture) •
 [Quickstart](#-quickstart) •
+[Obsidian Integration](#-live-obsidian-integration) •
+[Interactive Workbench](#-interactive-landing-page--workbench) •
 [Host Configuration](#-mcp-host-configuration) •
 [Tool Reference](#-tool-reference) •
 [Security Model](#-security--safety-model) •
@@ -146,6 +148,33 @@ python -m server.vaultmcp.main console --vault /path/to/my/notes --port 8765
 ```
 
 Navigate to **`http://127.0.0.1:8765`** to inspect index stats, test tools interactively, view live audit logs, and generate host configuration files.
+
+---
+
+## 🔮 Live Obsidian Integration
+
+VaultMCP is designed to run directly underneath **[Obsidian](https://obsidian.md)** or any Markdown-based note-taking environment:
+
+1. **Open Vault in Obsidian:** In Obsidian, select *"Open folder as vault"* and select your notes directory (e.g., `fixtures/test_vault`).
+2. **Visual Knowledge Graph:** Press `Ctrl + G` in Obsidian to view the full interactive wikilink graph (`[[note]]` connections) mapped by VaultMCP's link index.
+3. **Real-Time Assistant Updates:** When an AI assistant calls `append_to_note` or `create_note`, Obsidian detects the file system mutation and live-types the update directly onto your screen without an app restart.
+4. **Bidirectional Watching:** When you edit notes in Obsidian, VaultMCP's debounced background watcher (`watcher.py`) automatically updates the SQLite FTS5 index in under 2 seconds.
+
+---
+
+## 💎 Interactive Landing Page & Workbench
+
+VaultMCP includes a rich, reactive browser-based Landing Page & Tool Workbench ([index.html](index.html)) with zero external dependencies:
+- **Interactive Terminal Simulator:** Simulates real-time JSON-RPC initialize handshakes, BM25 searches, and hostile path traversal interceptions.
+- **Live Tool Workbench:** Execute calls against a simulated or live VaultMCP server with side-by-side JSON-RPC request and response inspection.
+- **Client Configuration Generator:** 1-click copy-paste JSON snippets for Claude Desktop, Cursor IDE, and Antigravity.
+
+To launch the landing page:
+```bash
+# Double-click index.html or serve locally:
+python -m http.server 8080
+```
+Then navigate to **`http://localhost:8080/index.html`**.
 
 ---
 

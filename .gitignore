@@ -73,3 +73,11 @@ Thumbs.db
 
 # Agent skills cache
 .agents/
+
+# Private Interview Prep & Demo Scripts (Do not commit)
+DEMO_SCENARIOS.md
+INTERVIEW_PREP_GUIDE.md
+
+# Obsidian workspace cache
+.obsidian/
+**/.obsidian/
