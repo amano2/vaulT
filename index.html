@@ -757,17 +757,151 @@
       setTimeout(() => { btn.innerText = 'Copy JSON'; }, 2000);
     }
 
+    // Global RPC request ID counter (declared first to avoid any TDZ reference issues)
+    var currentRpcId = 1;
+    var dynamicBackupCounter = 1;
+
+    // Simulated Vault Database for Dynamic In-Browser Playground
+    const mockVaultDB = [
+      {
+        path: "welcome.md",
+        title: "Welcome to the Vault",
+        folder: "",
+        tags: ["welcome", "guide"],
+        mtime: "2026-11-15T11:34:00Z",
+        sections: [
+          {
+            heading: "Introduction",
+            lines: "1-12",
+            body: "# Welcome to VaultMCP\nVaultMCP is a secure MCP server for local Markdown note vaults. Designed for zero-trust environments, safe LLM tool-calling, and high-performance retrieval."
+          },
+          {
+            heading: "Getting Started",
+            lines: "14-25",
+            body: "## Getting Started\nTo explore notes, you can use the `list_notes` tool or `search_notes` with keywords like 'retrieval evaluation'. Mentions [[projects/ai.md]] as our central research hub."
+          }
+        ]
+      },
+      {
+        path: "projects/ai.md",
+        title: "AI Projects and RAG",
+        folder: "projects",
+        tags: ["ai", "ml", "eval", "research"],
+        mtime: "2026-11-15T11:34:00Z",
+        sections: [
+          {
+            heading: "Overview",
+            lines: "1-12",
+            body: "# AI Research & Retrieval\nThis document tracks progress on local RAG evaluation, BM25 indexing with SQLite FTS5, and prompt injection mitigation."
+          },
+          {
+            heading: "Retrieval Evaluation Metrics",
+            lines: "13-22",
+            body: "## Retrieval Evaluation Metrics\nWe evaluate retrieval quality using MRR, NDCG@10, and BM25 pass-through accuracy. When building MCP servers, fast passage retrieval is critical. Linking back to [[welcome.md]]."
+          },
+          {
+            heading: "Next Steps",
+            lines: "23-32",
+            body: "## Next Steps\n- Benchmark latency on vaults with 10k+ notes\n- Stress-test path traversal defenses\n- Complete conformance validation"
+          }
+        ]
+      },
+      {
+        path: "inbox/normal_idea.md",
+        title: "Normal Idea",
+        folder: "inbox",
+        tags: ["idea", "draft"],
+        mtime: "2026-11-15T11:34:00Z",
+        sections: [
+          {
+            heading: "Quick Thought",
+            lines: "1-10",
+            body: "# Quick Thought\nExplored adding local vector embeddings via sqlite-vec as an optional hybrid search companion to BM25."
+          }
+        ]
+      },
+      {
+        path: "unicode/ünicöde_тест_🚀.md",
+        title: "Unicode Test Note",
+        folder: "unicode",
+        tags: ["unicode", "i18n", "multilingual"],
+        mtime: "2026-11-15T11:34:00Z",
+        sections: [
+          {
+            heading: "Международный тест",
+            lines: "1-8",
+            body: "# Международный тест 🚀\nПроверка поддержки кодировки UTF-8 в SQLite FTS5 с использованием токенизатора unicode61."
+          }
+        ]
+      }
+    ];
+
     // Playground Tool Definitions and Dynamic Forms
     const toolDefinitions = {
       search_notes: {
         fields: [
           { name: 'query', label: 'Search Query (BM25)', type: 'text', default: 'retrieval evaluation' },
-          { name: 'folder', label: 'Folder Restriction', type: 'text', default: 'projects' },
-          { name: 'tag', label: 'Tag Filter (Optional)', type: 'text', default: 'ml' },
+          { name: 'folder', label: 'Folder Restriction (e.g. projects, inbox, or empty)', type: 'text', default: '' },
+          { name: 'tag', label: 'Tag Filter (e.g. ml, eval, or empty)', type: 'text', default: '' },
           { name: 'top_k', label: 'Top Results Count', type: 'number', default: 3 }
         ],
-        mockResult: (args) => {
-          return `Found 1 matching section (latency: 3.2ms):\n\nMatch: projects/ai.md # Retrieval Evaluation Metrics (Score: -8.42)\nTags: #ai, #ml, #eval\nExcerpt: "Common metrics for evaluating local RAG and MCP search include Mean Reciprocal Rank (MRR@10) and Normalized Discounted Cumulative Gain (NDCG@10)..."`;
+        run: (args) => {
+          const q = (args.query || '').trim().toLowerCase();
+          const folder = (args.folder || '').trim();
+          const tag = (args.tag || '').trim().replace(/^#/, '').toLowerCase();
+          const topK = Math.max(1, Number(args.top_k) || 5);
+
+          if (!q) {
+            return "Error: query parameter is required for search_notes.";
+          }
+
+          const rawTerms = q.split(/\s+/).filter(Boolean);
+          const results = [];
+
+          mockVaultDB.forEach(note => {
+            if (folder && !note.path.startsWith(folder)) return;
+            if (tag && !note.tags.map(t => t.toLowerCase()).includes(tag)) return;
+
+            note.sections.forEach(sec => {
+              let score = 0;
+              let matchedTerms = 0;
+              let highlightedBody = sec.body;
+
+              rawTerms.forEach(term => {
+                const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const reg = new RegExp(`(${escaped})`, 'gi');
+                const headMatches = (sec.heading.match(reg) || []).length;
+                const bodyMatches = (sec.body.match(reg) || []).length;
+
+                if (headMatches > 0 || bodyMatches > 0) {
+                  matchedTerms++;
+                  score -= (headMatches * 10 + bodyMatches * 3.5); // lower BM25 = higher rank
+                  highlightedBody = highlightedBody.replace(reg, '[$1]');
+                }
+              });
+
+              if (matchedTerms > 0) {
+                results.push({
+                  path: note.path,
+                  heading: sec.heading,
+                  lines: sec.lines,
+                  score: (score - 1.25).toFixed(2),
+                  snippet: highlightedBody.split('\n').slice(0, 4).join('\n')
+                });
+              }
+            });
+          });
+
+          results.sort((a, b) => Number(a.score) - Number(b.score));
+          const sliced = results.slice(0, topK);
+
+          if (sliced.length === 0) {
+            return `No matching notes found for query '${args.query}'${folder ? ` in folder '${folder}'` : ''}${tag ? ` with tag '#${tag}'` : ''}.`;
+          }
+
+          return sliced.map((r, i) => 
+            `[${i + 1}] ${r.path} > ${r.heading} (lines ${r.lines}, score: ${r.score})\n${r.snippet}`
+          ).join('\n\n---\n\n');
         }
       },
       read_note: {
@@ -775,55 +909,133 @@
           { name: 'path', label: 'Note Relative Path', type: 'text', default: 'projects/ai.md' },
           { name: 'section', label: 'Heading Section (Optional)', type: 'text', default: 'Retrieval Evaluation Metrics' }
         ],
-        mockResult: (args) => {
-          return `Title: Artificial Intelligence & Retrieval\nPath: projects/ai.md\nFolder: projects\nTags: #ai, #ml, #eval\n\n## Retrieval Evaluation Metrics\nCommon metrics for evaluating local RAG and MCP search include Mean Reciprocal Rank (MRR@10) and Normalized Discounted Cumulative Gain (NDCG@10). Precision at 5 is also tracked for short-tail queries.`;
+        run: (args) => {
+          const path = (args.path || '').trim();
+          const targetSection = (args.section || '').trim().toLowerCase();
+
+          // Hostile Traversal Defense
+          if (path.includes('..') || path.startsWith('/') || path.includes('\\') || path.includes('\0')) {
+            return `Error: PathConfinementError: Path '${path}' escapes vault root. Realpath resolution blocked hostile traversal.`;
+          }
+
+          const note = mockVaultDB.find(n => n.path === path);
+          if (!note) {
+            return `Error: FileNotFoundError: Note '${path}' does not exist in vault. Use list_notes to browse available paths.`;
+          }
+
+          const fmSummary = `[Front Matter: {"title": "${note.title}", "tags": ${JSON.stringify(note.tags)}, "modified": "${note.mtime}"}]`;
+
+          if (targetSection) {
+            const sec = note.sections.find(s => s.heading.toLowerCase().includes(targetSection));
+            if (sec) {
+              return `${fmSummary}\n\n# ${sec.heading} (lines ${sec.lines})\n${sec.body}`;
+            }
+            return `${fmSummary}\n\nWarning: Heading section '${args.section}' not found in '${path}'. Showing top of note:\n\n${note.sections[0].body}`;
+          }
+
+          return `${fmSummary}\n\n` + note.sections.map(s => s.body).join('\n\n');
         }
       },
       list_notes: {
         fields: [
-          { name: 'folder', label: 'Folder Filter (Optional)', type: 'text', default: '' },
+          { name: 'folder', label: 'Folder Filter (e.g. projects, inbox, or empty)', type: 'text', default: '' },
           { name: 'limit', label: 'Limit Count', type: 'number', default: 5 }
         ],
-        mockResult: (args) => {
-          return `Found 5 notes in vault:\n- welcome.md (Title: Welcome to the Vault, Updated: 2026-11-15T11:34:00Z)\n- projects/ai.md (Title: Artificial Intelligence & Retrieval, Updated: 2026-11-15T11:34:00Z)\n- inbox/normal_idea.md (Title: Normal Idea, Updated: 2026-11-15T11:34:00Z)\n- unicode/ünicöde_тест_🚀.md (Title: Unicode Test, Updated: 2026-11-15T11:34:00Z)\n- inbox/bad_frontmatter.md (Title: Bad Frontmatter, Updated: 2026-11-15T11:34:00Z)`;
+        run: (args) => {
+          const folder = (args.folder || '').trim();
+          const limit = Math.max(1, Number(args.limit) || 10);
+          const filtered = mockVaultDB.filter(n => !folder || n.path.startsWith(folder)).slice(0, limit);
+
+          if (filtered.length === 0) {
+            return `No notes found in folder '${folder}'.`;
+          }
+
+          return `Found ${filtered.length} note(s):\n` + filtered.map(n => 
+            `- [${n.path}] ${n.title} (modified: ${n.mtime})`
+          ).join('\n');
         }
       },
       list_tags: {
         fields: [
           { name: 'prefix', label: 'Prefix Filter (Optional)', type: 'text', default: '' }
         ],
-        mockResult: (args) => {
-          return `Tags in vault (3 distinct tags):\n- #ai (1 notes: projects/ai.md)\n- #ml (1 notes: projects/ai.md)\n- #welcome (1 notes: welcome.md)`;
+        run: (args) => {
+          const prefix = (args.prefix || '').trim().toLowerCase().replace(/^#/, '');
+          const tagMap = {};
+
+          mockVaultDB.forEach(n => {
+            n.tags.forEach(t => {
+              tagMap[t] = (tagMap[t] || 0) + 1;
+            });
+          });
+
+          const tags = Object.keys(tagMap)
+            .filter(t => !prefix || t.startsWith(prefix))
+            .sort((a, b) => tagMap[b] - tagMap[a]);
+
+          if (tags.length === 0) {
+            return `No tags found matching prefix '${prefix}'.`;
+          }
+
+          return `Found ${tags.length} tag(s):\n` + tags.map(t => `- #${t} (${tagMap[t]} note${tagMap[t] > 1 ? 's' : ''})`).join('\n');
         }
       },
       get_backlinks: {
         fields: [
-          { name: 'path', label: 'Target Note Path', type: 'text', default: 'projects/ai.md' }
+          { name: 'path', label: 'Target Note Path', type: 'text', default: 'welcome.md' }
         ],
-        mockResult: (args) => {
-          return `Backlinks for 'projects/ai.md' (1 incoming references):\n- from 'welcome.md' (wiki-link: [[projects/ai]], markdown link: [AI Research](projects/ai.md))`;
+        run: (args) => {
+          const path = (args.path || '').trim();
+          if (path.includes('..')) {
+            return `Error: PathConfinementError: Path traversal blocked.`;
+          }
+          if (path === 'welcome.md' || path === 'welcome') {
+            return `Found 1 backlink(s) pointing to 'welcome.md':\n- From [projects/ai.md] at line 18: "Linking back to [[welcome.md]]."`;
+          } else if (path === 'projects/ai.md' || path === 'projects/ai') {
+            return `Found 1 backlink(s) pointing to 'projects/ai.md':\n- From [welcome.md] at line 20: "Mentions [[projects/ai.md]] as our central research hub."`;
+          }
+          return `No backlinks found pointing to '${path}'. Note is unlinked or has no incoming references.`;
         }
       },
       create_note: {
         fields: [
-          { name: 'path', label: 'New Note Path (Scoped to inbox/)', type: 'text', default: 'inbox/meeting_notes.md' },
-          { name: 'content', label: 'Markdown Content', type: 'textarea', default: '# Meeting Notes\nDiscussed VaultMCP deployment architecture.' }
+          { name: 'path', label: 'New Note Path (Scoped to inbox/)', type: 'text', default: 'inbox/interview_meeting.md' },
+          { name: 'content', label: 'Markdown Content', type: 'textarea', default: '# Interview Meeting Notes\nDiscussing VaultMCP architecture and real-time security safeguards.' }
         ],
-        mockResult: (args) => {
-          if (!args.path.startsWith('inbox/')) {
-            return `[REJECTED] PermissionError: Write denied: Folder '${args.path}' not permitted. Writes restricted to allowed_write_folders: ['inbox']`;
+        run: (args) => {
+          const path = (args.path || '').trim();
+          if (path.includes('..') || path.startsWith('/')) {
+            return `Error: PathConfinementError: Hostile path traversal blocked.`;
           }
-          return `Created note 'inbox/meeting_notes.md' (56 bytes, status: active, zero collisions).`;
+          if (!path.startsWith('inbox/')) {
+            const folder = path.includes('/') ? path.split('/')[0] : '';
+            return `Error: Write denied: Folder '${folder}' is not in allowed_write_folders (['inbox']). Writes are disabled outside whitelisted directories.`;
+          }
+          if (mockVaultDB.some(n => n.path === path)) {
+            return `Error: Refusing to overwrite existing note '${path}'. Use append_to_note to add content.`;
+          }
+          const bytes = (args.content || '').length;
+          return `Created note '${path}' (${bytes} bytes). Safe write completed in allowed folder.`;
         }
       },
       append_to_note: {
         fields: [
           { name: 'path', label: 'Existing Note Path (inbox/)', type: 'text', default: 'inbox/normal_idea.md' },
-          { name: 'content', label: 'Appended Text', type: 'text', default: '- Action Item: Review PRD section 7' },
-          { name: 'heading', label: 'Under Heading (Optional)', type: 'text', default: 'Action Items' }
+          { name: 'content', label: 'Text to Append', type: 'text', default: '\n- Added new evaluation benchmark target: 100% precision.' },
+          { name: 'heading', label: 'Under Heading (Optional)', type: 'text', default: 'Quick Thought' }
         ],
-        mockResult: (args) => {
-          return `Appended 38 bytes to note 'inbox/normal_idea.md'.\nPre-write snapshot created: .vaultmcp/backups/inbox_normal_idea_20261117_174400.md\nRollback reversible: Yes`;
+        run: (args) => {
+          const path = (args.path || '').trim();
+          if (path.includes('..')) {
+            return `Error: PathConfinementError: Hostile path traversal blocked.`;
+          }
+          if (!path.startsWith('inbox/')) {
+            return `Error: Write denied: Folder is not in allowed_write_folders (['inbox']).`;
+          }
+          const backupId = dynamicBackupCounter++;
+          const ts = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 15);
+          const bytes = (args.content || '').length;
+          return `Appended ${bytes} bytes to '${path}' (created backup snapshot #${backupId} at .vaultmcp/backups/${ts}_${path.replace(/\//g, '_')}). Rollback available from console.`;
         }
       }
     };
@@ -842,66 +1054,123 @@
         label.innerText = f.label;
         div.appendChild(label);
 
-        if (f.type === 'textarea') {
-          const area = document.createElement('textarea');
-          area.id = 'param-' + f.name;
-          area.rows = 2;
-          area.className = 'w-full bg-obsidian-950 border border-obsidian-700 rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:border-emerald-500 focus:outline-none';
-          area.value = f.default;
-          div.appendChild(area);
-        } else {
-          const input = document.createElement('input');
-          input.id = 'param-' + f.name;
-          input.type = f.type;
-          input.className = 'w-full bg-obsidian-950 border border-obsidian-700 rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:border-emerald-500 focus:outline-none';
-          input.value = f.default;
-          div.appendChild(input);
-        }
+        const isArea = f.type === 'textarea';
+        const input = document.createElement(isArea ? 'textarea' : 'input');
+        input.id = 'param-' + f.name;
+        if (!isArea) input.type = f.type;
+        if (isArea) input.rows = 2;
+        input.className = 'w-full bg-obsidian-950 border border-obsidian-700 rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:border-emerald-500 focus:outline-none transition-colors';
+        input.value = f.default;
+
+        // Dynamic Real-time preview as user types!
+        input.addEventListener('input', () => {
+          executeSimulatedTool(false);
+        });
+
+        div.appendChild(input);
         container.appendChild(div);
       });
 
-      executeSimulatedTool();
+      executeSimulatedTool(false);
     }
 
-    function executeSimulatedTool() {
+    function getPlaygroundArgs() {
       const selected = document.getElementById('tool-select').value;
       const def = toolDefinitions[selected];
+      if (!def) return {};
       const args = {};
       def.fields.forEach(f => {
         const el = document.getElementById('param-' + f.name);
         args[f.name] = el ? (f.type === 'number' ? Number(el.value) : el.value) : f.default;
       });
+      return args;
+    }
+
+    function executeSimulatedTool(isUserClick = true) {
+      if (isUserClick) {
+        currentRpcId++;
+      }
+      const selected = document.getElementById('tool-select').value;
+      const def = toolDefinitions[selected];
+      if (!def) return;
+      const args = getPlaygroundArgs();
 
       // Build JSON-RPC Request
       const req = {
         jsonrpc: "2.0",
-        id: Math.floor(Math.random() * 1000) + 1,
+        id: currentRpcId,
         method: "tools/call",
         params: {
           name: selected,
           arguments: args
         }
       };
-      document.getElementById('json-request').innerText = JSON.stringify(req, null, 2);
-
-      // Simulate Latency
-      const latency = (Math.random() * 3 + 2.5).toFixed(1);
-      document.getElementById('exec-latency').innerText = `latency: ${latency}ms`;
-
-      // Security Check badge
-      const isPathSafe = !JSON.stringify(args).includes('..');
-      const secBadge = document.getElementById('exec-security');
-      if (isPathSafe) {
-        secBadge.className = 'px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40';
-        secBadge.innerText = 'confinement: OK';
-      } else {
-        secBadge.className = 'px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/40';
-        secBadge.innerText = 'confinement: BLOCKED';
+      const reqBox = document.getElementById('json-request');
+      if (reqBox) {
+        reqBox.innerText = JSON.stringify(req, null, 2);
       }
 
-      // Generate Result
-      const resultText = def.mockResult(args);
-      document.getElementById('json-response').innerText = resultText;
+      // Check security & path safety
+      const argsString = JSON.stringify(args);
+      const isTraversalAttempt = argsString.includes('..') || argsString.includes('/etc/') || argsString.includes('\\..');
+      const isWriteDenied = (selected === 'create_note' || selected === 'append_to_note') && args.path && !args.path.startsWith('inbox/');
+      
+      const secBadge = document.getElementById('exec-security');
+      if (secBadge) {
+        if (isTraversalAttempt) {
+          secBadge.className = 'px-2 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-800/60 font-semibold';
+          secBadge.innerText = 'confinement: BLOCKED (Attack)';
+        } else if (isWriteDenied) {
+          secBadge.className = 'px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/60 font-semibold';
+          secBadge.innerText = 'write_scope: DENIED';
+        } else {
+          secBadge.className = 'px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40';
+          secBadge.innerText = 'confinement: OK';
+        }
+      }
+
+      const latency = (Math.random() * 2.2 + 2.1).toFixed(1);
+      const latBadge = document.getElementById('exec-latency');
+      if (latBadge) {
+        latBadge.innerText = `latency: ${latency}ms`;
+      }
+
+      // Execute dynamic tool logic
+      const resultText = def.run(args);
+
+      // Format response inside standard MCP Result structure
+      const responseFrame = {
+        jsonrpc: "2.0",
+        id: currentRpcId,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: resultText
+            }
+          ]
+        }
+      };
+
+      const resBox = document.getElementById('json-response');
+      if (resBox) {
+        resBox.innerText = JSON.stringify(responseFrame, null, 2);
+        if (isUserClick) {
+          resBox.classList.add('ring-1', 'ring-emerald-400');
+          setTimeout(() => { resBox.classList.remove('ring-1', 'ring-emerald-400'); }, 400);
+        }
+      }
+
+      const btn = document.querySelector('button[onclick="executeSimulatedTool()"]');
+      if (btn && isUserClick) {
+        const originalText = btn.querySelector('span').innerText;
+        btn.querySelector('span').innerText = 'Executed ✓';
+        setTimeout(() => {
+          if (btn.querySelector('span')) {
+            btn.querySelector('span').innerText = 'Execute Tool Call';
+          }
+        }, 600);
+      }
     }
 
     // Initialize on load
