@@ -11,6 +11,7 @@ import sqlite3
 import csv
 import io
 import time
+import contextlib
 from typing import Any
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -51,7 +52,7 @@ class ToolCallRequest(BaseModel):
     arguments: dict[str, Any] = {}
 
 
-def create_console_app(vault_root: Path) -> FastAPI:
+def create_console_app(vault_root: Path, db_path: Path | None = None) -> FastAPI:
     app = FastAPI(title="VaultMCP Console", version="0.1.0")
 
     app.add_middleware(
@@ -63,11 +64,31 @@ def create_console_app(vault_root: Path) -> FastAPI:
     )
 
     canonical_vault = vault_root.resolve()
+    target_db_path = db_path.resolve() if db_path else get_db_path(canonical_vault)
+
+    # Ensure migrations are always applied
+    init_conn = open_db(target_db_path)
+    try:
+        run_migrations(init_conn)
+    finally:
+        init_conn.close()
+
+    @contextlib.contextmanager
+    def _get_db():
+        conn = open_db(target_db_path)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     # 1. Status
     @app.get("/api/status")
     def get_status():
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute("SELECT count(*) FROM notes")
             note_count = cur.fetchone()[0]
@@ -96,7 +117,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
     # 2. Settings
     @app.get("/api/settings")
     def get_settings():
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute("SELECT key, value FROM settings")
             rows = cur.fetchall()
@@ -104,7 +125,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
 
     @app.put("/api/settings")
     def update_settings(update: SettingsUpdate):
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             if update.writes_enabled is not None:
                 cur.execute("UPDATE settings SET value = ? WHERE key='writes_enabled'", (json.dumps(update.writes_enabled),))
@@ -120,14 +141,14 @@ def create_console_app(vault_root: Path) -> FastAPI:
     # 3. Reindex
     @app.post("/api/reindex")
     def trigger_reindex():
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             summary = scan_and_index_vault(canonical_vault, conn, kind="full")
             return summary
 
     # 4. Tools Catalog & Inspector
     @app.get("/api/tools")
     def list_available_tools():
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute("SELECT value FROM settings WHERE key='writes_enabled'")
             writes_on = json.loads(cur.fetchone()[0])
@@ -246,7 +267,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
         args = req.arguments
         raw_request = {"jsonrpc": "2.0", "method": f"tools/call", "params": {"name": name, "arguments": args}}
 
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             try:
                 if name == "list_notes":
                     res = list_notes_handler(conn, folder=args.get("folder"), limit=int(args.get("limit", 50)))
@@ -300,7 +321,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
         transport: str | None = None,
         limit: int = 100,
     ):
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             conditions = []
             params = {}
@@ -330,7 +351,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
 
     @app.get("/api/calls/export")
     def export_calls(format: str = Query("json", pattern="^(json|csv)$")):
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM call_log ORDER BY id DESC")
             rows = [dict(r) for r in cur.fetchall()]
@@ -355,7 +376,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
     # 7. Tokens
     @app.get("/api/tokens")
     def list_tokens():
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute("SELECT id, name, scope, folder_prefix, rate_limit_per_min, created_at, last_used_at, expires_at, revoked_at FROM access_tokens ORDER BY id DESC")
             return [dict(r) for r in cur.fetchall()]
@@ -363,7 +384,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
     @app.post("/api/tokens")
     def create_token(payload: TokenCreate):
         raw_token, token_hash = generate_secure_token()
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute(
                 """
@@ -383,7 +404,7 @@ def create_console_app(vault_root: Path) -> FastAPI:
 
     @app.delete("/api/tokens/{token_id}")
     def revoke_token(token_id: int):
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute("UPDATE access_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?", (token_id,))
             return {"status": "ok"}
@@ -391,14 +412,14 @@ def create_console_app(vault_root: Path) -> FastAPI:
     # 8. Backups and Restore
     @app.get("/api/backups")
     def list_backups():
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             cur = conn.cursor()
             cur.execute("SELECT id, note_path, backup_path, reason, size_bytes, created_at FROM backups ORDER BY id DESC LIMIT 100")
             return [dict(r) for r in cur.fetchall()]
 
     @app.post("/api/backups/{backup_id}/restore")
     def restore_backup_version(backup_id: int):
-        with get_db(canonical_vault) as conn:
+        with _get_db() as conn:
             res = restore_backup(canonical_vault, conn, backup_id)
             scan_and_index_vault(canonical_vault, conn, kind="incremental")
             return res

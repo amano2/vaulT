@@ -16,7 +16,7 @@ def test_console_api_endpoints(tmp_path: Path):
     scan_and_index_vault(fixture_vault, conn, kind="full")
     conn.close()
 
-    app = create_console_app(fixture_vault)
+    app = create_console_app(fixture_vault, db_path=db_path)
     client = TestClient(app)
 
     # 1. Status endpoint
