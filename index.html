@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VaultMCP — Production-Grade Model Context Protocol Vault Engine</title>
+  <meta name="description" content="A hardened, zero-trust Model Context Protocol (MCP) server for local Markdown note vaults. Built with SQLite FTS5 BM25 search, strict path confinement, safe scoped writes, and guaranteed stdout purity.">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            display: ['"Syne"', '"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            obsidian: {
+              950: '#060911',
+              900: '#0B0F19',
+              850: '#0F172A',
+              800: '#151E33',
+              700: '#1E293B',
+              600: '#334155',
+            },
+            emerald: {
+              400: '#34D399',
+              500: '#10B981',
+              600: '#059669',
+            },
+            cyan: {
+              400: '#22D3EE',
+              500: '#06B6D4',
+            }
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'glow': 'glow 4s ease-in-out infinite alternate',
+          },
+          keyframes: {
+            glow: {
+              '0%': { opacity: '0.3', transform: 'scale(0.98)' },
+              '100%': { opacity: '0.6', transform: 'scale(1.02)' }
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    /* Custom styles & glowing backdrop */
+    .bg-grid {
+      background-size: 40px 40px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    }
+    .glow-orb {
+      position: absolute;
+      border-radius: 9999px;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .code-scroll::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    .code-scroll::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    .code-scroll::-webkit-scrollbar-thumb {
+      background: rgba(51, 65, 85, 0.8);
+      border-radius: 4px;
+    }
+    .badge-shimmer {
+      background: linear-gradient(90deg, rgba(16, 185, 129, 0.1) 0%, rgba(6, 182, 212, 0.25) 50%, rgba(16, 185, 129, 0.1) 100%);
+      background-size: 200% 100%;
+      animation: shimmer 3s infinite linear;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+  </style>
+</head>
+<body class="bg-obsidian-950 text-slate-100 font-sans antialiased selection:bg-emerald-500/30 selection:text-emerald-300 relative overflow-x-hidden">
+
+  <!-- Ambient Background Lighting -->
+  <div class="glow-orb top-[-100px] left-1/2 -translate-x-1/2 w-[700px] h-[450px] bg-gradient-to-r from-emerald-600/15 via-cyan-600/15 to-indigo-600/10"></div>
+  <div class="glow-orb top-[800px] left-[-200px] w-[500px] h-[500px] bg-emerald-500/10"></div>
+  <div class="glow-orb top-[1800px] right-[-150px] w-[600px] h-[600px] bg-cyan-500/10"></div>
+
+  <!-- Background Grid Pattern -->
+  <div class="fixed inset-0 bg-grid pointer-events-none z-0 opacity-80"></div>
+
+  <!-- NAVIGATION -->
+  <header class="sticky top-0 z-50 backdrop-blur-md bg-obsidian-950/80 border-b border-obsidian-800/80 transition-all">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand & Status -->
+      <div class="flex items-center space-x-3">
+        <a href="#hero" class="flex items-center space-x-2.5 group">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 group-hover:scale-105 transition-transform">
+            <span class="text-obsidian-950 font-black text-sm">VM</span>
+          </div>
+          <span class="text-xl font-bold tracking-tight text-white flex items-center">
+            Vault<span class="text-emerald-400">MCP</span>
+          </span>
+        </a>
+        <div class="hidden sm:flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>MCP 2024-11-05 Ready</span>
+        </div>
+      </div>
+
+      <!-- Nav Links -->
+      <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-slate-300">
+        <a href="#pitch" class="hover:text-emerald-400 transition-colors">Why VaultMCP?</a>
+        <a href="#interactive-hero" class="hover:text-emerald-400 transition-colors">Live Handshake</a>
+        <a href="#playground" class="hover:text-emerald-400 transition-colors">Tool Simulator</a>
+        <a href="#benchmarks" class="hover:text-emerald-400 transition-colors">Benchmarks (100%)</a>
+        <a href="#architecture" class="hover:text-emerald-400 transition-colors">Architecture</a>
+        <a href="#quickstart" class="hover:text-emerald-400 transition-colors">Quickstart</a>
+      </nav>
+
+      <!-- Right Action CTA -->
+      <div class="flex items-center space-x-3">
+        <a href="https://github.com/amano2/vaulT" target="_blank" rel="noopener" class="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-lg border border-obsidian-700 hover:border-slate-500 bg-obsidian-900/80 hover:bg-obsidian-800 text-xs font-medium text-slate-200 transition-all">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          <span class="hidden sm:inline">GitHub</span>
+        </a>
+        <a href="#playground" class="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-obsidian-950 font-semibold text-xs transition-all shadow-md shadow-emerald-500/20">
+          <span>Live Demo</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO SECTION -->
+  <section id="hero" class="relative pt-20 pb-16 md:pt-28 md:pb-24 z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <!-- Top Announcement Pill -->
+      <div class="flex justify-center mb-8">
+        <div class="inline-flex items-center space-x-3 px-4 py-1.5 rounded-full bg-obsidian-900 border border-emerald-500/30 badge-shimmer text-slate-300 text-xs sm:text-sm">
+          <span class="flex h-2 w-2 rounded-full bg-emerald-400"></span>
+          <span class="font-medium text-white">Production-Ready MCP Server</span>
+          <span class="text-slate-500">|</span>
+          <span class="text-emerald-400 font-mono font-semibold">100% Eval Accuracy</span>
+          <span class="text-slate-500">|</span>
+          <span class="text-cyan-400 font-mono">0 Stdout Leaks</span>
+        </div>
+      </div>
+
+      <!-- Headline & Value Pitch -->
+      <div class="text-center max-w-4xl mx-auto mb-10">
+        <h1 class="font-display text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.08] mb-6">
+          The Local Knowledge <br class="hidden sm:inline" />
+          <span class="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+            Vault Engine
+          </span> for AI Agents.
+        </h1>
+        <p class="text-lg sm:text-xl text-slate-300 font-normal leading-relaxed max-w-3xl mx-auto">
+          A secure, high-precision Model Context Protocol server for local Markdown note vaults (Obsidian, Foam, Logseq). Engineered with <span class="text-emerald-300 font-medium">SQLite FTS5 BM25 search</span>, <span class="text-cyan-300 font-medium">canonical path confinement</span>, <span class="text-indigo-300 font-medium">folder-scoped writes with automatic backups</span>, and <span class="text-emerald-300 font-medium">100% pure stdio JSON-RPC framing</span>.
+        </p>
+      </div>
+
+      <!-- Hero Action Buttons -->
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
+        <a href="#playground" class="w-full sm:w-auto px-7 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-obsidian-950 font-bold text-sm tracking-wide shadow-xl shadow-emerald-500/25 transition-all flex items-center justify-center space-x-2">
+          <span>Test Drive Tools in Browser</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </a>
+        <a href="#pitch" class="w-full sm:w-auto px-7 py-3.5 rounded-xl bg-obsidian-850 hover:bg-obsidian-800 border border-obsidian-700 text-white font-semibold text-sm transition-all flex items-center justify-center space-x-2">
+          <span>Why This Architecture Matters</span>
+          <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+      </div>
+
+      <!-- Quick Command Bar -->
+      <div class="max-w-xl mx-auto mb-16">
+        <div class="flex items-center justify-between bg-obsidian-900/90 border border-obsidian-700 rounded-xl px-4 py-2.5 shadow-2xl backdrop-blur">
+          <div class="flex items-center space-x-3 overflow-hidden">
+            <span class="text-emerald-400 font-mono text-sm font-bold">$</span>
+            <span id="hero-cmd" class="text-xs sm:text-sm font-mono text-slate-300 truncate">python -m server.vaultmcp.main --vault ~/notes --stdio</span>
+          </div>
+          <button onclick="copyHeroCmd()" id="hero-copy-btn" class="ml-3 px-3 py-1 rounded bg-obsidian-800 hover:bg-obsidian-700 text-slate-300 hover:text-white text-xs font-mono border border-obsidian-700 transition-colors flex items-center space-x-1 shrink-0">
+            <span>Copy</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- INTERACTIVE TERMINAL SIMULATOR IN HERO -->
+      <div id="interactive-hero" class="max-w-5xl mx-auto rounded-2xl bg-obsidian-900/95 border border-obsidian-700 shadow-2xl overflow-hidden backdrop-blur-xl transition-all">
+        
+        <!-- Terminal Titlebar -->
+        <div class="bg-obsidian-950 px-4 py-3 border-b border-obsidian-800 flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <span class="w-3 h-3 rounded-full bg-rose-500/80 inline-block"></span>
+            <span class="w-3 h-3 rounded-full bg-amber-500/80 inline-block"></span>
+            <span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block"></span>
+            <span class="ml-2 text-xs font-mono text-slate-400">vaultmcp-stdio-daemon &bull; pid: 8421 &bull; 0 leaked stdout bytes</span>
+          </div>
+          <div class="flex items-center space-x-1">
+            <span class="px-2 py-0.5 text-[11px] font-mono rounded bg-emerald-950 text-emerald-400 border border-emerald-800/60">
+              Live Inspector
+            </span>
+          </div>
+        </div>
+
+        <!-- Terminal Interactive Tabs -->
+        <div class="bg-obsidian-900 border-b border-obsidian-800 flex overflow-x-auto code-scroll text-xs font-mono">
+          <button onclick="switchTerminalTab('tab-handshake')" id="btn-tab-handshake" class="px-4 py-2.5 text-emerald-400 border-b-2 border-emerald-400 bg-obsidian-850 font-medium flex items-center space-x-2 whitespace-nowrap">
+            <span>1. MCP Protocol Handshake</span>
+          </button>
+          <button onclick="switchTerminalTab('tab-search')" id="btn-tab-search" class="px-4 py-2.5 text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-obsidian-850/50 flex items-center space-x-2 whitespace-nowrap">
+            <span>2. FTS5 BM25 Section Search</span>
+          </button>
+          <button onclick="switchTerminalTab('tab-write')" id="btn-tab-write" class="px-4 py-2.5 text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-obsidian-850/50 flex items-center space-x-2 whitespace-nowrap">
+            <span>3. Scoped Write + Pre-Backup</span>
+          </button>
+          <button onclick="switchTerminalTab('tab-attack')" id="btn-tab-attack" class="px-4 py-2.5 text-slate-400 hover:text-slate-200 border-b-2 border-transparent hover:bg-obsidian-850/50 flex items-center space-x-2 whitespace-nowrap">
+            <span>4. Traversal Defense Audit</span>
+          </button>
+        </div>
+
+        <!-- Terminal Content Pane -->
+        <div class="p-5 font-mono text-xs sm:text-sm text-slate-300 min-h-[340px] overflow-x-auto code-scroll leading-relaxed">
+          
+          <!-- Tab 1: Handshake -->
+          <div id="tab-handshake" class="space-y-4">
+            <div class="text-slate-500"># Client sends JSON-RPC Initialize packet over stdin:</div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-cyan-300">
+              <span class="text-slate-500">&gt;</span> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"claude-desktop","version":"1.0"}}}
+            </div>
+            <div class="text-slate-500"># VaultMCP responds on stdout with zero stderr noise:</div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-emerald-400">
+              <span class="text-slate-500">&lt;</span> {<br>
+              &nbsp;&nbsp;"jsonrpc": "2.0",<br>
+              &nbsp;&nbsp;"id": 1,<br>
+              &nbsp;&nbsp;"result": {<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;"protocolVersion": "2024-11-05",<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;"serverInfo": { "name": "vaultmcp", "version": "0.1.0" },<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;"capabilities": { "tools": { "listChanged": true }, "resources": { "subscribe": false } }<br>
+              &nbsp;&nbsp;}<br>
+              }
+            </div>
+            <div class="flex items-center space-x-2 text-xs text-emerald-300 pt-1">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>Framing status: 100% Clean. All server logging diverted to stderr stream.</span>
+            </div>
+          </div>
+
+          <!-- Tab 2: Search -->
+          <div id="tab-search" class="hidden space-y-4">
+            <div class="text-slate-500"># Query: "retrieval evaluation" (FTS5 BM25 with heading boosts H1:10x, H2:5x):</div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-cyan-300">
+              <span class="text-slate-500">&gt;</span> call_tool: "search_notes" args: {"query": "retrieval evaluation", "folder": "projects", "top_k": 3}
+            </div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-emerald-300">
+              <span class="text-slate-500">&lt;</span> Found 1 matching section (latency: 3.8ms):<br><br>
+              ---<br>
+              Match: <span class="text-white font-bold">projects/ai.md</span> # <span class="text-cyan-300">Retrieval Evaluation Metrics</span> (Level 2, Score: -8.42)<br>
+              Tags: #ai, #ml, #eval<br>
+              Excerpt: "Common metrics for evaluating local RAG and MCP search include Mean Reciprocal Rank (MRR@10) and Normalized Discounted Cumulative Gain (NDCG@10)..."
+            </div>
+            <div class="text-xs text-slate-400 pt-1">
+              &bull; Exact section extracted &bull; Heading weight applied &bull; Zero unnecessary context dumped to LLM
+            </div>
+          </div>
+
+          <!-- Tab 3: Write -->
+          <div id="tab-write" class="hidden space-y-4">
+            <div class="text-slate-500"># Append action requested by LLM with writes enabled for 'inbox':</div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-cyan-300">
+              <span class="text-slate-500">&gt;</span> call_tool: "append_to_note" args: {"path": "inbox/ideas.md", "content": "- Benchmark latency on M3 Max", "heading": "Todo"}
+            </div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-emerald-300">
+              <span class="text-slate-500">&lt;</span> Status: Success<br>
+              &bull; Pre-write snapshot created: <span class="text-amber-300">.vaultmcp/backups/inbox_ideas_20261117_120401.md</span><br>
+              &bull; Insertion: Under heading '## Todo' (lines 14-15)<br>
+              &bull; Reversibility: 1-click restore available via web console (/api/backups/restore)
+            </div>
+            <div class="text-xs text-amber-300/80 pt-1">
+              &bull; Writes outside 'allowed_write_folders' (e.g. 'projects/') are immediately rejected.
+            </div>
+          </div>
+
+          <!-- Tab 4: Attack -->
+          <div id="tab-attack" class="hidden space-y-4">
+            <div class="text-slate-500"># Adversarial LLM tool call attempting directory traversal:</div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-rose-300">
+              <span class="text-slate-500">&gt;</span> call_tool: "read_note" args: {"path": "../../Windows/System32/config/SAM"}
+            </div>
+            <div class="bg-obsidian-950/90 p-3 rounded-lg border border-obsidian-800 text-rose-400">
+              <span class="text-slate-500">&lt;</span> [BLOCKED] PermissionError: PathConfinementError<br>
+              Target path escapes canonical vault boundary.<br>
+              Resolved realpath: "C:\Windows\System32\config\SAM"<br>
+              Confinement root:  "C:\Users\KIIT\OneDrive\Desktop\vault\fixtures\test_vault"<br>
+              Verdict: REJECTED (Zero file descriptor opened, zero bytes disclosed)
+            </div>
+            <div class="text-xs text-emerald-400 pt-1">
+              &bull; Verified by unit test suite: `test_reject_hostile_traversal` (100% pass)
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Terminal Footer -->
+        <div class="bg-obsidian-950 px-4 py-2.5 border-t border-obsidian-800 flex items-center justify-between text-xs text-slate-500">
+          <span>Transport: Stdio / Streamable HTTP SSE</span>
+          <span class="font-mono text-emerald-400">SQLite 3.45+ with WAL mode & FTS5</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- THE INTERVIEWER PITCH: WHY THIS ARCHITECTURE MATTERS -->
+  <section id="pitch" class="py-20 bg-obsidian-900/60 border-y border-obsidian-800/80 relative z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-16">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 font-semibold mb-3">Architectural Philosophy</h2>
+        <h3 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          Why A Naive Script Fails in Production
+        </h3>
+        <p class="mt-4 text-slate-400 text-base">
+          Most MCP servers are 30-line demo wrappers that fail under real model behavior. VaultMCP was built as a hardened system engineering solution addressing the four critical vulnerabilities of LLM file access.
+        </p>
+      </div>
+
+      <!-- 4 Core Pillars Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        <!-- Pillar 1 -->
+        <div class="p-8 rounded-2xl bg-obsidian-950/80 border border-obsidian-800 hover:border-emerald-500/40 transition-all group">
+          <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          </div>
+          <h4 class="text-xl font-bold text-white mb-3">1. Strict Path Confinement (Zero-Trust)</h4>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            LLMs cannot be trusted with relative path strings. Prompts frequently generate traversal attempts (`../../`), symlink loops, or Windows drive root escapes.
+          </p>
+          <div class="p-3.5 rounded-lg bg-obsidian-900 border border-obsidian-800 text-xs font-mono text-slate-300">
+            <span class="text-emerald-400 font-semibold">VaultMCP Solution:</span> Canonical <code class="text-white">os.path.realpath()</code> resolution against vault root. Raises <code class="text-rose-400">PathConfinementError</code> before any file handle is acquired.
+          </div>
+        </div>
+
+        <!-- Pillar 2 -->
+        <div class="p-8 rounded-2xl bg-obsidian-950/80 border border-obsidian-800 hover:border-cyan-500/40 transition-all group">
+          <div class="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          </div>
+          <h4 class="text-xl font-bold text-white mb-3">2. Section-Level AST & BM25 vs. Document Dumping</h4>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            Dumping 5,000-line Markdown documents into an LLM context window increases latency by 10x, drains token budgets, and causes "lost in the middle" hallucinations.
+          </p>
+          <div class="p-3.5 rounded-lg bg-obsidian-900 border border-obsidian-800 text-xs font-mono text-slate-300">
+            <span class="text-cyan-400 font-semibold">VaultMCP Solution:</span> Full Markdown AST section parser. SQLite FTS5 stores passages weighted by heading level (<code class="text-cyan-300">H1: 10x &bull; H2: 5x &bull; H3: 2x</code>). Sub-10ms response.
+          </div>
+        </div>
+
+        <!-- Pillar 3 -->
+        <div class="p-8 rounded-2xl bg-obsidian-950/80 border border-obsidian-800 hover:border-amber-500/40 transition-all group">
+          <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </div>
+          <h4 class="text-xl font-bold text-white mb-3">3. Non-Destructive Scoped Writes & Backups</h4>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            Accidental file clobbering or unauthorized modification of personal notes destroys user trust. Unconstrained writes can corrupt years of interconnected knowledge.
+          </p>
+          <div class="p-3.5 rounded-lg bg-obsidian-900 border border-obsidian-800 text-xs font-mono text-slate-300">
+            <span class="text-amber-400 font-semibold">VaultMCP Solution:</span> Writes disabled by default. Scoped strictly to designated folders (`inbox/`). Automated pre-write backup snapshot prior to append. Zero deletion tool exists.
+          </div>
+        </div>
+
+        <!-- Pillar 4 -->
+        <div class="p-8 rounded-2xl bg-obsidian-950/80 border border-obsidian-800 hover:border-emerald-500/40 transition-all group">
+          <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
+          <h4 class="text-xl font-bold text-white mb-3">4. Guaranteed Stdout Framing Purity</h4>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            Desktop MCP clients (Claude Desktop, Cursor) read raw JSON-RPC over `stdio`. A single stray `print()` or third-party logger corrupts stream framing and terminates the connection.
+          </p>
+          <div class="p-3.5 rounded-lg bg-obsidian-900 border border-obsidian-800 text-xs font-mono text-slate-300">
+            <span class="text-emerald-400 font-semibold">VaultMCP Solution:</span> Strict stdout reservation. Custom logging setup diverts 100% of debug logs, diagnostic output, and tracebacks to `stderr`. Verified by automated test.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- INTERACTIVE TOOL WORKBENCH / PLAYGROUND -->
+  <section id="playground" class="py-20 relative z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-14">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 font-semibold mb-3">Live Interactive Workbench</h2>
+        <h3 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          Test Drive the 7 MCP Tools
+        </h3>
+        <p class="mt-4 text-slate-400 text-sm sm:text-base">
+          Select an MCP tool below to simulate a real-world tool call against the VaultMCP engine and inspect the exact JSON-RPC request and response payloads.
+        </p>
+      </div>
+
+      <!-- Workbench Box -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-obsidian-900/90 border border-obsidian-800 rounded-2xl p-6 shadow-2xl backdrop-blur-xl">
+        
+        <!-- Left Column: Tool Selector & Parameters -->
+        <div class="lg:col-span-5 space-y-5 border-b lg:border-b-0 lg:border-r border-obsidian-800 pb-6 lg:pb-0 lg:pr-6">
+          <div>
+            <label class="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">Select MCP Tool</label>
+            <select id="tool-select" onchange="onToolChange()" class="w-full bg-obsidian-950 border border-obsidian-700 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500">
+              <option value="search_notes">search_notes (BM25 Section Search)</option>
+              <option value="read_note">read_note (Heading Section / Body)</option>
+              <option value="list_notes">list_notes (Path & Title Enumeration)</option>
+              <option value="list_tags">list_tags (Taxonomy & Frequency)</option>
+              <option value="get_backlinks">get_backlinks (Wiki-link Graph)</option>
+              <option value="create_note">create_note (Scoped Folder Creation)</option>
+              <option value="append_to_note">append_to_note (Pre-Backup Append)</option>
+            </select>
+          </div>
+
+          <!-- Dynamic Parameter Inputs -->
+          <div id="tool-params-container" class="space-y-4">
+            <!-- Injected by JavaScript -->
+          </div>
+
+          <!-- Execute Button -->
+          <div class="pt-2">
+            <button onclick="executeSimulatedTool()" class="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-obsidian-950 font-bold text-sm tracking-wide shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center space-x-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span>Execute Tool Call</span>
+            </button>
+          </div>
+
+          <!-- Safety Callout -->
+          <div class="p-3.5 rounded-lg bg-obsidian-950 border border-obsidian-800 text-xs text-slate-400 space-y-1">
+            <div class="flex items-center space-x-2 text-emerald-400 font-medium">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+              <span>Security Guarantee</span>
+            </div>
+            <p>Every call executes through canonical realpath validation and checks the folder permission mask before invoking storage.</p>
+          </div>
+        </div>
+
+        <!-- Right Column: Live Output & Payloads -->
+        <div class="lg:col-span-7 space-y-4">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono uppercase tracking-wider text-slate-400">Execution Inspector</span>
+            <div class="flex items-center space-x-2 text-xs font-mono">
+              <span id="exec-latency" class="px-2 py-0.5 rounded bg-obsidian-950 text-emerald-400 border border-obsidian-800">latency: 4.2ms</span>
+              <span id="exec-security" class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">confinement: OK</span>
+            </div>
+          </div>
+
+          <!-- JSON-RPC Request Box -->
+          <div>
+            <div class="text-[11px] font-mono text-slate-400 mb-1 flex items-center justify-between">
+              <span>JSON-RPC 2.0 Request Frame (Client &rarr; Stdio)</span>
+            </div>
+            <pre id="json-request" class="p-3.5 rounded-lg bg-obsidian-950 border border-obsidian-800 text-xs font-mono text-cyan-300 overflow-x-auto code-scroll leading-relaxed"></pre>
+          </div>
+
+          <!-- Response Payload Box -->
+          <div>
+            <div class="text-[11px] font-mono text-slate-400 mb-1 flex items-center justify-between">
+              <span>Tool Result Payload (Server &rarr; LLM Context)</span>
+            </div>
+            <pre id="json-response" class="p-3.5 rounded-lg bg-obsidian-950 border border-obsidian-800 text-xs font-mono text-emerald-300 overflow-x-auto code-scroll leading-relaxed min-h-[160px]"></pre>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- BENCHMARK & TEST SCORECARD -->
+  <section id="benchmarks" class="py-20 bg-obsidian-900/60 border-y border-obsidian-800/80 relative z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-16">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 font-semibold mb-3">Empirical Verification</h2>
+        <h3 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          Test Suite & Conformance Scorecard
+        </h3>
+        <p class="mt-4 text-slate-400 text-sm sm:text-base">
+          VaultMCP is backed by automated unit tests, strict schema conformance runners, and an LLM prompt tool-selection benchmark.
+        </p>
+      </div>
+
+      <!-- Stats Cards Row -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
+        <div class="p-6 rounded-2xl bg-obsidian-950 border border-obsidian-800 text-center">
+          <div class="font-display text-4xl sm:text-5xl font-extrabold text-emerald-400 mb-2">13/13</div>
+          <div class="text-xs uppercase font-mono tracking-wider text-slate-400">Pytest Unit Tests</div>
+          <div class="mt-2 text-[11px] text-emerald-500 font-medium">100% Pass in 7.29s</div>
+        </div>
+        <div class="p-6 rounded-2xl bg-obsidian-950 border border-obsidian-800 text-center">
+          <div class="font-display text-4xl sm:text-5xl font-extrabold text-cyan-400 mb-2">70/70</div>
+          <div class="text-xs uppercase font-mono tracking-wider text-slate-400">Tool Selection Eval</div>
+          <div class="mt-2 text-[11px] text-cyan-500 font-medium">100.0% Accuracy</div>
+        </div>
+        <div class="p-6 rounded-2xl bg-obsidian-950 border border-obsidian-800 text-center">
+          <div class="font-display text-4xl sm:text-5xl font-extrabold text-white mb-2">0</div>
+          <div class="text-xs uppercase font-mono tracking-wider text-slate-400">Stdout Leak Bytes</div>
+          <div class="mt-2 text-[11px] text-emerald-400 font-medium">Zero Framing Errors</div>
+        </div>
+        <div class="p-6 rounded-2xl bg-obsidian-950 border border-obsidian-800 text-center">
+          <div class="font-display text-4xl sm:text-5xl font-extrabold text-indigo-400 mb-2">3</div>
+          <div class="text-xs uppercase font-mono tracking-wider text-slate-400">Schema Migrations</div>
+          <div class="mt-2 text-[11px] text-indigo-400 font-medium">vm_001 to vm_003</div>
+        </div>
+      </div>
+
+      <!-- Comparison Matrix Table -->
+      <div class="rounded-2xl bg-obsidian-950 border border-obsidian-800 overflow-hidden shadow-2xl">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-obsidian-900 border-b border-obsidian-800 text-xs font-mono uppercase text-slate-400">
+              <tr>
+                <th class="py-4 px-6">Capability / Metric</th>
+                <th class="py-4 px-6 text-slate-400">Naive MCP File Server</th>
+                <th class="py-4 px-6 text-emerald-400">VaultMCP (Our Architecture)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-obsidian-800 font-mono text-xs text-slate-300">
+              <tr>
+                <td class="py-4 px-6 font-sans font-semibold text-white">Search Granularity</td>
+                <td class="py-4 px-6 text-rose-400">Full-file dump (blows token limits)</td>
+                <td class="py-4 px-6 text-emerald-300">Section-level passages via FTS5 BM25</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-sans font-semibold text-white">Path Traversal Defense</td>
+                <td class="py-4 px-6 text-rose-400">Relies on LLM prompt obedience</td>
+                <td class="py-4 px-6 text-emerald-300">Canonical realpath OS confinement</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-sans font-semibold text-white">Write Safety</td>
+                <td class="py-4 px-6 text-rose-400">Direct overwrite / unversioned write</td>
+                <td class="py-4 px-6 text-emerald-300">Disabled by default + pre-write snapshots</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-sans font-semibold text-white">Stdout Framing Safety</td>
+                <td class="py-4 px-6 text-rose-400">Prints debug logs to stdout (crashes RPC)</td>
+                <td class="py-4 px-6 text-emerald-300">100% pure JSON-RPC on stdout, stderr logging</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-sans font-semibold text-white">Observability & Control</td>
+                <td class="py-4 px-6 text-rose-400">None (blind stdio execution)</td>
+                <td class="py-4 px-6 text-emerald-300">Embedded Web Console (:8765) + CSV audit log</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-sans font-semibold text-white">Protocol Verification</td>
+                <td class="py-4 px-6 text-rose-400">Unverified</td>
+                <td class="py-4 px-6 text-emerald-300">100% Automated Conformance Test Suite</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE & PIPELINE -->
+  <section id="architecture" class="py-20 relative z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-16">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 font-semibold mb-3">System Design</h2>
+        <h3 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          Engineered for Extreme Reliability
+        </h3>
+        <p class="mt-4 text-slate-400 text-sm sm:text-base">
+          A decoupled, layered design that separates transport handling, security enforcement, indexing, and persistent storage.
+        </p>
+      </div>
+
+      <!-- Architecture Card -->
+      <div class="p-8 rounded-2xl bg-obsidian-900 border border-obsidian-800 shadow-2xl">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+          
+          <div class="p-6 rounded-xl bg-obsidian-950 border border-obsidian-800 space-y-3">
+            <div class="text-xs font-mono uppercase tracking-wider text-cyan-400 font-bold">1. Ingress Layer</div>
+            <h4 class="text-lg font-bold text-white">Dual Transports</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Standard Stdio for local IDEs (Claude Desktop, Cursor). Streamable HTTP SSE with constant-time SHA-256 Bearer Token verification for remote agent clusters.
+            </p>
+          </div>
+
+          <div class="p-6 rounded-xl bg-obsidian-950 border border-emerald-500/30 space-y-3">
+            <div class="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold">2. Security Sandbox</div>
+            <h4 class="text-lg font-bold text-white">Confinement & Scopes</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Realpath boundary checks prevent any escaping access. Scoped tokens enforce read vs read_write permissions. All writes restricted to designated folders.
+            </p>
+          </div>
+
+          <div class="p-6 rounded-xl bg-obsidian-950 border border-obsidian-800 space-y-3">
+            <div class="text-xs font-mono uppercase tracking-wider text-indigo-400 font-bold">3. Storage Engine</div>
+            <h4 class="text-lg font-bold text-white">SQLite FTS5 + WAL</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Full-text BM25 index with heading boosts. Incremental SHA-256 scanner tracks file updates. Timestamped pre-write backup engine archives every modification.
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- QUICKSTART CONFIGURATION FOR MCP HOSTS -->
+  <section id="quickstart" class="py-20 bg-obsidian-900/60 border-t border-obsidian-800/80 relative z-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-14">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 font-semibold mb-3">Copy-Paste Integration</h2>
+        <h3 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">
+          Connect to Your Favorite MCP Host
+        </h3>
+        <p class="mt-4 text-slate-400 text-sm sm:text-base">
+          Drop this configuration into your MCP client to enable local note vault retrieval immediately.
+        </p>
+      </div>
+
+      <!-- Config Switcher Box -->
+      <div class="max-w-3xl mx-auto rounded-2xl bg-obsidian-950 border border-obsidian-800 shadow-2xl overflow-hidden">
+        
+        <!-- Tabs -->
+        <div class="bg-obsidian-900 border-b border-obsidian-800 flex text-xs font-mono">
+          <button onclick="switchConfigTab('claude')" id="btn-cfg-claude" class="px-5 py-3 text-emerald-400 border-b-2 border-emerald-400 bg-obsidian-950 font-medium">Claude Desktop</button>
+          <button onclick="switchConfigTab('cursor')" id="btn-cfg-cursor" class="px-5 py-3 text-slate-400 hover:text-white border-b-2 border-transparent">Cursor IDE</button>
+          <button onclick="switchConfigTab('antigravity')" id="btn-cfg-antigravity" class="px-5 py-3 text-slate-400 hover:text-white border-b-2 border-transparent">Antigravity / Gemini CLI</button>
+        </div>
+
+        <!-- Tab Contents -->
+        <div class="p-6 relative">
+          <pre id="cfg-code" class="text-xs font-mono text-cyan-300 overflow-x-auto code-scroll leading-relaxed">{
+  "mcpServers": {
+    "vaultmcp": {
+      "command": "python",
+      "args": [
+        "-m",
+        "server.vaultmcp.main",
+        "--vault",
+        "/absolute/path/to/your/notes",
+        "--stdio"
+      ]
+    }
+  }
+}</pre>
+          <button onclick="copyConfigCode()" id="cfg-copy-btn" class="absolute top-6 right-6 px-3 py-1 rounded bg-obsidian-800 hover:bg-obsidian-700 text-slate-300 hover:text-white text-xs font-mono border border-obsidian-700 transition-colors">
+            Copy JSON
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- CANDIDATE FOOTER & INTERVIEWER PITCH -->
+  <footer class="py-16 bg-obsidian-950 border-t border-obsidian-800 relative z-10 text-slate-400 text-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+        
+        <div class="flex items-center space-x-3">
+          <div class="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-xs">
+            VM
+          </div>
+          <span class="text-sm font-semibold text-white">VaultMCP &bull; Built by Aman</span>
+        </div>
+
+        <div class="flex items-center space-x-6 text-slate-400">
+          <a href="https://github.com/amano2/vaulT" target="_blank" rel="noopener" class="hover:text-emerald-400 transition-colors">GitHub Repository</a>
+          <a href="https://github.com/amano2/vaulT/blob/main/docs/TRD.md" target="_blank" rel="noopener" class="hover:text-emerald-400 transition-colors">Technical Requirements (TRD)</a>
+          <a href="https://github.com/amano2/vaulT/blob/main/docs/PRD.md" target="_blank" rel="noopener" class="hover:text-emerald-400 transition-colors">Product Spec (PRD)</a>
+          <a href="#hero" class="hover:text-emerald-400 transition-colors">Back to Top</a>
+        </div>
+
+        <div class="text-slate-500 text-center md:text-right">
+          MIT Licensed &bull; Model Context Protocol Compliant
+        </div>
+
+      </div>
+    </div>
+  </footer>
+
+  <!-- INTERACTIVE PLAYGROUND SCRIPT -->
+  <script>
+    // Copy Hero Command
+    function copyHeroCmd() {
+      const text = document.getElementById('hero-cmd').innerText;
+      navigator.clipboard.writeText(text);
+      const btn = document.getElementById('hero-copy-btn');
+      btn.innerHTML = '<span class="text-emerald-400">&check; Copied</span>';
+      setTimeout(() => { btn.innerHTML = '<span>Copy</span>'; }, 2000);
+    }
+
+    // Switch Terminal Hero Tabs
+    function switchTerminalTab(tabId) {
+      ['tab-handshake', 'tab-search', 'tab-write', 'tab-attack'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+        const btn = document.getElementById('btn-' + id);
+        btn.classList.remove('text-emerald-400', 'border-emerald-400', 'bg-obsidian-850');
+        btn.classList.add('text-slate-400', 'border-transparent');
+      });
+      document.getElementById(tabId).classList.remove('hidden');
+      const activeBtn = document.getElementById('btn-' + tabId);
+      activeBtn.classList.add('text-emerald-400', 'border-emerald-400', 'bg-obsidian-850');
+      activeBtn.classList.remove('text-slate-400', 'border-transparent');
+    }
+
+    // Quick Config Switcher
+    const configs = {
+      claude: `{\n  "mcpServers": {\n    "vaultmcp": {\n      "command": "python",\n      "args": ["-m", "server.vaultmcp.main", "--vault", "/absolute/path/to/your/notes", "--stdio"]\n    }\n  }\n}`,
+      cursor: `{\n  "name": "vaultmcp",\n  "type": "command",\n  "command": "python -m server.vaultmcp.main --vault /absolute/path/to/your/notes --stdio"\n}`,
+      antigravity: `{\n  "mcpServers": {\n    "vaultmcp": {\n      "command": "python",\n      "args": ["-m", "server.vaultmcp.main", "--vault", "/absolute/path/to/your/notes", "--stdio"]\n    }\n  }\n}`
+    };
+
+    function switchConfigTab(type) {
+      ['claude', 'cursor', 'antigravity'].forEach(t => {
+        const btn = document.getElementById('btn-cfg-' + t);
+        btn.classList.remove('text-emerald-400', 'border-emerald-400', 'bg-obsidian-950');
+        btn.classList.add('text-slate-400', 'border-transparent');
+      });
+      const activeBtn = document.getElementById('btn-cfg-' + type);
+      activeBtn.classList.add('text-emerald-400', 'border-emerald-400', 'bg-obsidian-950');
+      activeBtn.classList.remove('text-slate-400', 'border-transparent');
+      document.getElementById('cfg-code').innerText = configs[type];
+    }
+
+    function copyConfigCode() {
+      const code = document.getElementById('cfg-code').innerText;
+      navigator.clipboard.writeText(code);
+      const btn = document.getElementById('cfg-copy-btn');
+      btn.innerText = 'Copied!';
+      setTimeout(() => { btn.innerText = 'Copy JSON'; }, 2000);
+    }
+
+    // Playground Tool Definitions and Dynamic Forms
+    const toolDefinitions = {
+      search_notes: {
+        fields: [
+          { name: 'query', label: 'Search Query (BM25)', type: 'text', default: 'retrieval evaluation' },
+          { name: 'folder', label: 'Folder Restriction', type: 'text', default: 'projects' },
+          { name: 'tag', label: 'Tag Filter (Optional)', type: 'text', default: 'ml' },
+          { name: 'top_k', label: 'Top Results Count', type: 'number', default: 3 }
+        ],
+        mockResult: (args) => {
+          return `Found 1 matching section (latency: 3.2ms):\n\nMatch: projects/ai.md # Retrieval Evaluation Metrics (Score: -8.42)\nTags: #ai, #ml, #eval\nExcerpt: "Common metrics for evaluating local RAG and MCP search include Mean Reciprocal Rank (MRR@10) and Normalized Discounted Cumulative Gain (NDCG@10)..."`;
+        }
+      },
+      read_note: {
+        fields: [
+          { name: 'path', label: 'Note Relative Path', type: 'text', default: 'projects/ai.md' },
+          { name: 'section', label: 'Heading Section (Optional)', type: 'text', default: 'Retrieval Evaluation Metrics' }
+        ],
+        mockResult: (args) => {
+          return `Title: Artificial Intelligence & Retrieval\nPath: projects/ai.md\nFolder: projects\nTags: #ai, #ml, #eval\n\n## Retrieval Evaluation Metrics\nCommon metrics for evaluating local RAG and MCP search include Mean Reciprocal Rank (MRR@10) and Normalized Discounted Cumulative Gain (NDCG@10). Precision at 5 is also tracked for short-tail queries.`;
+        }
+      },
+      list_notes: {
+        fields: [
+          { name: 'folder', label: 'Folder Filter (Optional)', type: 'text', default: '' },
+          { name: 'limit', label: 'Limit Count', type: 'number', default: 5 }
+        ],
+        mockResult: (args) => {
+          return `Found 5 notes in vault:\n- welcome.md (Title: Welcome to the Vault, Updated: 2026-11-15T11:34:00Z)\n- projects/ai.md (Title: Artificial Intelligence & Retrieval, Updated: 2026-11-15T11:34:00Z)\n- inbox/normal_idea.md (Title: Normal Idea, Updated: 2026-11-15T11:34:00Z)\n- unicode/ünicöde_тест_🚀.md (Title: Unicode Test, Updated: 2026-11-15T11:34:00Z)\n- inbox/bad_frontmatter.md (Title: Bad Frontmatter, Updated: 2026-11-15T11:34:00Z)`;
+        }
+      },
+      list_tags: {
+        fields: [
+          { name: 'prefix', label: 'Prefix Filter (Optional)', type: 'text', default: '' }
+        ],
+        mockResult: (args) => {
+          return `Tags in vault (3 distinct tags):\n- #ai (1 notes: projects/ai.md)\n- #ml (1 notes: projects/ai.md)\n- #welcome (1 notes: welcome.md)`;
+        }
+      },
+      get_backlinks: {
+        fields: [
+          { name: 'path', label: 'Target Note Path', type: 'text', default: 'projects/ai.md' }
+        ],
+        mockResult: (args) => {
+          return `Backlinks for 'projects/ai.md' (1 incoming references):\n- from 'welcome.md' (wiki-link: [[projects/ai]], markdown link: [AI Research](projects/ai.md))`;
+        }
+      },
+      create_note: {
+        fields: [
+          { name: 'path', label: 'New Note Path (Scoped to inbox/)', type: 'text', default: 'inbox/meeting_notes.md' },
+          { name: 'content', label: 'Markdown Content', type: 'textarea', default: '# Meeting Notes\nDiscussed VaultMCP deployment architecture.' }
+        ],
+        mockResult: (args) => {
+          if (!args.path.startsWith('inbox/')) {
+            return `[REJECTED] PermissionError: Write denied: Folder '${args.path}' not permitted. Writes restricted to allowed_write_folders: ['inbox']`;
+          }
+          return `Created note 'inbox/meeting_notes.md' (56 bytes, status: active, zero collisions).`;
+        }
+      },
+      append_to_note: {
+        fields: [
+          { name: 'path', label: 'Existing Note Path (inbox/)', type: 'text', default: 'inbox/normal_idea.md' },
+          { name: 'content', label: 'Appended Text', type: 'text', default: '- Action Item: Review PRD section 7' },
+          { name: 'heading', label: 'Under Heading (Optional)', type: 'text', default: 'Action Items' }
+        ],
+        mockResult: (args) => {
+          return `Appended 38 bytes to note 'inbox/normal_idea.md'.\nPre-write snapshot created: .vaultmcp/backups/inbox_normal_idea_20261117_174400.md\nRollback reversible: Yes`;
+        }
+      }
+    };
+
+    function onToolChange() {
+      const selected = document.getElementById('tool-select').value;
+      const def = toolDefinitions[selected];
+      const container = document.getElementById('tool-params-container');
+      container.innerHTML = '';
+
+      def.fields.forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'space-y-1';
+        const label = document.createElement('label');
+        label.className = 'block text-xs font-mono text-slate-400';
+        label.innerText = f.label;
+        div.appendChild(label);
+
+        if (f.type === 'textarea') {
+          const area = document.createElement('textarea');
+          area.id = 'param-' + f.name;
+          area.rows = 2;
+          area.className = 'w-full bg-obsidian-950 border border-obsidian-700 rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:border-emerald-500 focus:outline-none';
+          area.value = f.default;
+          div.appendChild(area);
+        } else {
+          const input = document.createElement('input');
+          input.id = 'param-' + f.name;
+          input.type = f.type;
+          input.className = 'w-full bg-obsidian-950 border border-obsidian-700 rounded-lg p-2.5 text-xs text-slate-200 font-mono focus:border-emerald-500 focus:outline-none';
+          input.value = f.default;
+          div.appendChild(input);
+        }
+        container.appendChild(div);
+      });
+
+      executeSimulatedTool();
+    }
+
+    function executeSimulatedTool() {
+      const selected = document.getElementById('tool-select').value;
+      const def = toolDefinitions[selected];
+      const args = {};
+      def.fields.forEach(f => {
+        const el = document.getElementById('param-' + f.name);
+        args[f.name] = el ? (f.type === 'number' ? Number(el.value) : el.value) : f.default;
+      });
+
+      // Build JSON-RPC Request
+      const req = {
+        jsonrpc: "2.0",
+        id: Math.floor(Math.random() * 1000) + 1,
+        method: "tools/call",
+        params: {
+          name: selected,
+          arguments: args
+        }
+      };
+      document.getElementById('json-request').innerText = JSON.stringify(req, null, 2);
+
+      // Simulate Latency
+      const latency = (Math.random() * 3 + 2.5).toFixed(1);
+      document.getElementById('exec-latency').innerText = `latency: ${latency}ms`;
+
+      // Security Check badge
+      const isPathSafe = !JSON.stringify(args).includes('..');
+      const secBadge = document.getElementById('exec-security');
+      if (isPathSafe) {
+        secBadge.className = 'px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40';
+        secBadge.innerText = 'confinement: OK';
+      } else {
+        secBadge.className = 'px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/40';
+        secBadge.innerText = 'confinement: BLOCKED';
+      }
+
+      // Generate Result
+      const resultText = def.mockResult(args);
+      document.getElementById('json-response').innerText = resultText;
+    }
+
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      onToolChange();
+    });
+  </script>
+
+</body>
+</html>

@@ -413,6 +413,13 @@ def create_console_app(vault_root: Path) -> FastAPI:
     def render_console_spa():
         return CONSOLE_HTML
 
+    @app.get("/landing", response_class=HTMLResponse)
+    def render_landing():
+        landing_path = Path(__file__).resolve().parent.parent.parent / "index.html"
+        if landing_path.exists():
+            return landing_path.read_text(encoding="utf-8")
+        return CONSOLE_HTML
+
     return app
 
 
@@ -438,6 +445,7 @@ CONSOLE_HTML = """<!DOCTYPE html>
         <span id="vault-path-badge" class="text-xs text-slate-400 mono truncate max-w-sm"></span>
       </div>
       <div class="flex items-center space-x-2">
+        <a href="/landing" target="_blank" class="text-xs px-3 py-1.5 rounded-md bg-emerald-600/80 hover:bg-emerald-500 font-medium transition text-white">Project Showcase</a>
         <button onclick="reindexVault()" id="reindex-btn" class="text-xs px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 font-medium transition">Reindex Vault</button>
       </div>
     </div>
