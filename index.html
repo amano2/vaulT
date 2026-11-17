@@ -21,7 +21,7 @@
         extend: {
           fontFamily: {
             sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
-            display: ['"Syne"', '"Plus Jakarta Sans"', 'sans-serif'],
+            display: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
             mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
           },
           colors: {
@@ -119,10 +119,6 @@
             Vault<span class="text-emerald-400">MCP</span>
           </span>
         </a>
-        <div class="hidden sm:flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>MCP 2024-11-05 Ready</span>
-        </div>
       </div>
 
       <!-- Nav Links -->
@@ -152,30 +148,30 @@
   </header>
 
   <!-- HERO SECTION -->
-  <section id="hero" class="relative pt-20 pb-16 md:pt-28 md:pb-24 z-10">
+  <section id="hero" class="relative pt-12 pb-16 sm:pt-16 sm:pb-20 md:pt-20 md:pb-24 z-10">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       
       <!-- Top Announcement Pill -->
       <div class="flex justify-center mb-8">
-        <div class="inline-flex items-center space-x-3 px-4 py-1.5 rounded-full bg-obsidian-900 border border-emerald-500/30 badge-shimmer text-slate-300 text-xs sm:text-sm">
+        <div class="inline-flex items-center space-x-2.5 sm:space-x-3 px-4 py-1.5 rounded-full bg-obsidian-900 border border-emerald-500/30 badge-shimmer text-slate-300 text-xs sm:text-sm shadow-md">
           <span class="flex h-2 w-2 rounded-full bg-emerald-400"></span>
           <span class="font-medium text-white">Production-Ready MCP Server</span>
-          <span class="text-slate-500">|</span>
-          <span class="text-emerald-400 font-mono font-semibold">100% Eval Accuracy</span>
-          <span class="text-slate-500">|</span>
-          <span class="text-cyan-400 font-mono">0 Stdout Leaks</span>
+          <span class="text-slate-600">&bull;</span>
+          <span class="text-emerald-400 font-mono font-medium">100% Eval Accuracy</span>
+          <span class="text-slate-600 hidden sm:inline">&bull;</span>
+          <span class="text-cyan-400 font-mono hidden sm:inline">0 Stdout Leaks</span>
         </div>
       </div>
 
       <!-- Headline & Value Pitch -->
       <div class="text-center max-w-4xl mx-auto mb-10">
-        <h1 class="font-display text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white leading-[1.08] mb-6">
+        <h1 class="font-display text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight text-white leading-[1.2] sm:leading-[1.18] mb-6 max-w-4xl mx-auto px-2 sm:px-4">
           The Local Knowledge <br class="hidden sm:inline" />
           <span class="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
             Vault Engine
           </span> for AI Agents.
         </h1>
-        <p class="text-lg sm:text-xl text-slate-300 font-normal leading-relaxed max-w-3xl mx-auto">
+        <p class="text-sm sm:text-base md:text-lg text-slate-300/90 font-normal leading-relaxed sm:leading-loose max-w-2xl sm:max-w-3xl mx-auto px-4 mb-8">
           A secure, high-precision Model Context Protocol server for local Markdown note vaults (Obsidian, Foam, Logseq). Engineered with <span class="text-emerald-300 font-medium">SQLite FTS5 BM25 search</span>, <span class="text-cyan-300 font-medium">canonical path confinement</span>, <span class="text-indigo-300 font-medium">folder-scoped writes with automatic backups</span>, and <span class="text-emerald-300 font-medium">100% pure stdio JSON-RPC framing</span>.
         </p>
       </div>
